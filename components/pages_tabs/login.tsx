@@ -17,7 +17,7 @@ export default function LoginPage() {
     
     // Handle login logic here
     console.log('Login attempt:', { email, password });
-    router.push('/(tabs)');
+    router.push('/homepage');
   };
 
   const handleSignUp = () => {

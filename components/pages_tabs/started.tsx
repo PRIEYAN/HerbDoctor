@@ -14,6 +14,9 @@ export default function StartedPage() {
     <ThemedView style={styles.container}>
       <View style={styles.content}>
         <ThemedText style={styles.title}>Welcome to Herbal Doctor's App</ThemedText>
+        <ThemedText style={styles.subtitle}>
+          Your trusted companion for natural health and wellness
+        </ThemedText>
         
         <TouchableOpacity style={styles.button} onPress={handleGetStarted}>
           <ThemedText style={styles.buttonText}>Get Started</ThemedText>

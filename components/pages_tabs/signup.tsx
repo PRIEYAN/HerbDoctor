@@ -31,7 +31,7 @@ export default function SignupPage() {
     
     // Handle signup logic here
     console.log('Signup attempt:', formData);
-    router.push('/(tabs)');
+    router.push('/homepage');
   };
 
   const handleBack = () => {

@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -6,18 +7,15 @@ import { ThemedView } from '@/components/ThemedView';
 
 export default function HomePage() {
   const handlePatientRequest = () => {
-    // Navigate to patient request page
-    console.log('Navigate to patient request');
+    router.push('../patient-request');
   };
 
   const handleHistory = () => {
-    // Navigate to history page
-    console.log('Navigate to history');
+    router.push('../history');
   };
 
   const handlePaymentHistory = () => {
-    // Navigate to payment history page
-    console.log('Navigate to payment history');
+    router.push('../payment-history');
   };
 
   return (
