@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { authAPI, storage } from '@/utils/api';
+import { getErrorMessage } from '@/utils/errorHandler';
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -12,26 +14,86 @@ export default function SignupPage() {
     email: '',
     nmrNumber: '',
     password: '',
+    hospital: '',
     specialization: '',
     aboutMe: '',
   });
+
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSignup = () => {
-    const requiredFields = ['name', 'phoneNumber', 'email', 'nmrNumber', 'password', 'specialization'];
+  const handleSignup = async () => {
+    const requiredFields = ['name', 'phoneNumber', 'email', 'nmrNumber', 'password', 'hospital', 'specialization'];
     const missingFields = requiredFields.filter(field => !formData[field as keyof typeof formData]);
     
     if (missingFields.length > 0) {
       Alert.alert('Error', `Please fill in: ${missingFields.join(', ')}`);
       return;
     }
-    
-    // Handle signup logic here
-    console.log('Signup attempt:', formData);
-    router.push('/homepage');
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    // Validate phone number format
+    const phoneRegex = /^\+?[\d\s\-\(\)]+$/;
+    if (!phoneRegex.test(formData.phoneNumber)) {
+      Alert.alert('Error', 'Please enter a valid phone number');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const signupData = {
+        name: formData.name,
+        email: formData.email,
+        phonenumber: formData.phoneNumber,
+        nmr_number: formData.nmrNumber,
+        password: formData.password,
+        hospital: formData.hospital,
+        specialization: formData.specialization,
+        aboutme: formData.aboutMe,
+      };
+
+      const response = await authAPI.signup(signupData);
+
+      // Check for successful status codes (200 or 201)
+      if (response.status === 200 || response.status === 201) {
+        const { token } = response.data;
+        
+        // Store JWT token and user data in AsyncStorage
+        await storage.setToken(token);
+        
+        Alert.alert(
+          'Success', 
+          'Account created successfully!',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.push('/homepage')
+            }
+          ]
+        );
+      } else {
+        // Handle unexpected status codes
+        Alert.alert('Signup Failed', 'Unexpected response from server. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Signup error:', error);
+      
+      // Use the error handling utility
+      const errorMessage = getErrorMessage(error);
+      Alert.alert('Signup Failed', errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleBack = () => {
@@ -127,6 +189,19 @@ export default function SignupPage() {
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
+                value={formData.hospital}
+                onChangeText={(value) => handleInputChange('hospital', value)}
+                placeholder="Hospital/Clinic Name"
+                placeholderTextColor="#999999"
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+              <View style={styles.inputLine} />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
                 value={formData.specialization}
                 onChangeText={(value) => handleInputChange('specialization', value)}
                 placeholder="Specialization"
@@ -153,8 +228,16 @@ export default function SignupPage() {
               <View style={styles.inputLine} />
             </View>
 
-            <TouchableOpacity style={styles.signupButton} onPress={handleSignup}>
-              <ThemedText style={styles.signupButtonText}>Sign Up</ThemedText>
+            <TouchableOpacity 
+              style={[styles.signupButton, isLoading && styles.signupButtonDisabled]} 
+              onPress={handleSignup}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <ThemedText style={styles.signupButtonText}>Sign Up</ThemedText>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.loginContainer} onPress={handleLogin}>
@@ -251,6 +334,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
     marginBottom: 24,
+  },
+  signupButtonDisabled: {
+    backgroundColor: '#A0A0A0',
   },
   signupButtonText: {
     color: '#FFFFFF',

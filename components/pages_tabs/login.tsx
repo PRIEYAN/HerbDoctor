@@ -1,23 +1,71 @@
 import { router } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { authAPI, storage } from '@/utils/api';
+import { getErrorMessage } from '@/utils/errorHandler';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please enter both email and password');
       return;
     }
-    
-    // Handle login logic here
-    console.log('Login attempt:', { email, password });
-    router.push('/homepage');
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const loginData = {
+        email: email,
+        password: password,
+      };
+
+      const response = await authAPI.login(loginData);
+
+      // Check for successful status codes (200 or 201)
+      if (response.status === 200 || response.status === 201) {
+        const { token, doctor } = response.data;
+        
+        // Store JWT token and user data in AsyncStorage
+        await storage.setToken(token);
+        await storage.setUserData(doctor);
+        
+        Alert.alert(
+          'Success', 
+          'Login successful!',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.push('/homepage')
+            }
+          ]
+        );
+      } else {
+        // Handle unexpected status codes
+        Alert.alert('Login Failed', 'Unexpected response from server. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Login error:', error);
+      
+      // Use the error handling utility
+      const errorMessage = getErrorMessage(error);
+      Alert.alert('Login Failed', errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSignUp = () => {
@@ -76,8 +124,16 @@ export default function LoginPage() {
             <View style={styles.inputLine} />
           </View>
 
-          <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-            <ThemedText style={styles.loginButtonText}>Log In</ThemedText>
+          <TouchableOpacity 
+            style={[styles.loginButton, isLoading && styles.loginButtonDisabled]} 
+            onPress={handleLogin}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <ThemedText style={styles.loginButtonText}>Log In</ThemedText>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.signUpContainer} onPress={handleSignUp}>
@@ -166,6 +222,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
     marginBottom: 24,
+  },
+  loginButtonDisabled: {
+    backgroundColor: '#A0A0A0',
   },
   loginButtonText: {
     color: '#FFFFFF',

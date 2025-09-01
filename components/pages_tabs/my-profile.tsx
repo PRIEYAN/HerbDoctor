@@ -1,13 +1,158 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { authAPI } from '@/utils/api';
 
 export default function MyProfile() {
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [doctorInfo, setDoctorInfo] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    fetchDoctorInfo();
+  }, []);
+
+  const fetchDoctorInfo = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        Alert.alert('Error', 'No authentication token found');
+        router.push('../login');
+        return;
+      }
+
+      const response = await authAPI.verifyJWT(token);
+
+      if (response.status === 200) {
+        const { message, doctor } = response.data;
+        if (message === "JWT verified" && doctor) {
+          setDoctorInfo(doctor);
+          
+          // Fetch profile picture from server
+          try {
+            const pfpResponse = await fetch(`http://10.10.45.109:5001/doctor/pfp/profile/${doctor.sno}`);
+            if (pfpResponse.ok) {
+              const imageBlob = await pfpResponse.blob();
+              const reader = new FileReader();
+              reader.onload = () => {
+                const base64 = reader.result as string;
+                setProfileImage(base64);
+              };
+              reader.readAsDataURL(imageBlob);
+            }
+          } catch (error) {
+            console.log('No profile picture found or error fetching:', error);
+          }
+        } else {
+          Alert.alert('Error', 'Invalid response from server');
+        }
+      }
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        Alert.alert('Session Expired', 'Please login again');
+        router.push('../login');
+      } else {
+        Alert.alert('Error', 'Failed to fetch profile information');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
+
+  const uploadProfilePicture = async (imageUri: string) => {
+    try {
+      setIsUploading(true);
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        Alert.alert('Error', 'No authentication token found');
+        return;
+      }
+
+      console.log('Uploading profile picture...');
+      console.log('Token length:', token.length);
+      console.log('Image URI:', imageUri);
+
+      // Create form data
+      const formData = new FormData();
+      formData.append('token', token);
+      
+      // Create file object from URI
+      const fileInfo = await FileSystem.getInfoAsync(imageUri);
+      const fileName = imageUri.split('/').pop() || 'profile.jpg';
+      const mimeType = 'image/jpeg';
+      
+      formData.append('profile_pic', {
+        uri: imageUri,
+        type: mimeType,
+        name: fileName,
+      } as any);
+
+      console.log('Form data prepared');
+
+      const response = await fetch('http://10.10.45.109:5001/doctor/pfp/upload', {
+        method: 'PrOST',
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        body: formData,
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+
+      let data;
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+
+      try {
+        data = JSON.parse(responseText);
+        console.log('Response data:', data);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Response text:', responseText);
+        
+        if (responseText.includes('<html>') || responseText.includes('<!DOCTYPE')) {
+          Alert.alert('Server Error', 'The server returned an HTML error page. The endpoint might not exist or there\'s a server error.');
+        } else {
+          Alert.alert('Response Error', 'Server returned invalid JSON response.');
+        }
+        return;
+      }
+
+      if (response.ok) {
+        Alert.alert('Success', 'Profile picture uploaded successfully!');
+        // Refresh doctor info to get updated profile picture
+        await fetchDoctorInfo();
+      } else {
+        Alert.alert('Error', data.message || 'Failed to upload profile picture');
+      }
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      
+      if (error.message.includes('Network request failed')) {
+        Alert.alert('Network Error', 'Please check your internet connection and try again.');
+      } else if (error.message.includes('timeout')) {
+        Alert.alert('Timeout Error', 'Request timed out. Please try again.');
+      } else {
+        Alert.alert('Error', `Failed to upload profile picture: ${error.message}`);
+      }
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleBack = () => {
     router.back();
@@ -15,6 +160,8 @@ export default function MyProfile() {
 
   const handleImageUpload = async () => {
     try {
+      console.log('Starting image upload process...');
+      
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (permissionResult.granted === false) {
@@ -22,18 +169,38 @@ export default function MyProfile() {
         return;
       }
 
+      console.log('Permission granted, launching image picker...');
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.01, // Ultra low quality (1%)
+        base64: false, // We'll convert manually
       });
 
+      console.log('Image picker result:', result);
+
       if (!result.canceled && result.assets[0]) {
-        setProfileImage(result.assets[0].uri);
+        const imageUri = result.assets[0].uri;
+        console.log('Selected image URI:', imageUri);
+        
+        setProfileImage(imageUri);
+        
+        // Convert to base64 and upload
+        try {
+          console.log('Starting upload...');
+          await uploadProfilePicture(imageUri);
+        } catch (error: any) {
+          console.error('Error in image processing:', error);
+          Alert.alert('Error', `Failed to process image: ${error.message}`);
+        }
+      } else {
+        console.log('Image selection cancelled or failed');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to upload image. Please try again.');
+    } catch (error: any) {
+      console.error('Image upload error:', error);
+      Alert.alert('Error', `Failed to upload image: ${error.message}`);
     }
   };
 
@@ -64,6 +231,17 @@ export default function MyProfile() {
     );
   };
 
+  if (isLoading) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#20AB7D" />
+          <ThemedText style={styles.loadingText}>Loading profile...</ThemedText>
+        </View>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -80,20 +258,38 @@ export default function MyProfile() {
 
         {/* Profile Photo Section */}
         <View style={styles.photoSection}>
-          <TouchableOpacity style={styles.profilePhotoContainer} onPress={handlePhotoPress}>
+          <TouchableOpacity 
+            style={styles.profilePhotoContainer} 
+            onPress={handlePhotoPress}
+            disabled={isUploading}
+          >
             {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.profilePhoto} />
+              <Image 
+                source={{ uri: profileImage }} 
+                style={styles.profilePhoto}
+                defaultSource={require('@/assets/images/icon.png')}
+              />
             ) : (
               <View style={styles.profilePhotoPlaceholder}>
-                <ThemedText style={styles.profilePhotoText}>P</ThemedText>
+                <ThemedText style={styles.profilePhotoText}>
+                  {doctorInfo?.name?.charAt(0)?.toUpperCase() || 'P'}
+                </ThemedText>
               </View>
             )}
             <View style={styles.uploadOverlay}>
-              <ThemedText style={styles.uploadText}>📷</ThemedText>
+              <ThemedText style={styles.uploadText}>
+                {isUploading ? '⏳' : '📷'}
+              </ThemedText>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.uploadButton} onPress={handleImageUpload}>
-            <ThemedText style={styles.uploadButtonText}>Upload New Photo</ThemedText>
+          <TouchableOpacity 
+            style={[styles.uploadButton, isUploading && styles.uploadButtonDisabled]} 
+            onPress={handleImageUpload}
+            disabled={isUploading}
+          >
+            <ThemedText style={styles.uploadButtonText}>
+              {isUploading ? 'Uploading...' : 'Upload New Photo'}
+            </ThemedText>
           </TouchableOpacity>
         </View>
 
@@ -106,28 +302,36 @@ export default function MyProfile() {
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Full Name</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>Dr. Prieyan</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  Dr. {doctorInfo?.name || 'Loading...'}
+                </ThemedText>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Email</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>dr.prieyan@herbdoctor.com</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.email || 'Loading...'}
+                </ThemedText>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Phone Number</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>+1 (555) 123-4567</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.phonenumber || 'Loading...'}
+                </ThemedText>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>Date of Birth</ThemedText>
+              <ThemedText style={styles.inputLabel}>NMR Number</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>January 15, 1985</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.nmr_number || 'Loading...'}
+                </ThemedText>
               </View>
             </View>
           </View>
@@ -137,63 +341,61 @@ export default function MyProfile() {
             <ThemedText style={styles.sectionTitle}>Professional Information</ThemedText>
             
             <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>License Number</ThemedText>
+              <ThemedText style={styles.inputLabel}>Hospital/Clinic</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>MD123456789</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.hospital || 'Loading...'}
+                </ThemedText>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Specialization</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>Herbal Medicine & Alternative Therapy</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.specialization || 'Loading...'}
+                </ThemedText>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>Years of Experience</ThemedText>
+              <ThemedText style={styles.inputLabel}>About Me</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>15 years</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.aboutme || 'No information available'}
+                </ThemedText>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>Education</ThemedText>
+              <ThemedText style={styles.inputLabel}>Booking Status</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>MD - Harvard Medical School</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.booked !== "none" ? `Booked: ${doctorInfo.booked}` : 'Available'}
+                </ThemedText>
               </View>
             </View>
           </View>
 
-          {/* Address Information */}
+          {/* Additional Information */}
           <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>Address Information</ThemedText>
+            <ThemedText style={styles.sectionTitle}>Additional Information</ThemedText>
             
             <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>Street Address</ThemedText>
+              <ThemedText style={styles.inputLabel}>Profile ID</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>123 Healing Street</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  {doctorInfo?.sno || 'Loading...'}
+                </ThemedText>
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>City</ThemedText>
+              <ThemedText style={styles.inputLabel}>Account Status</ThemedText>
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>Wellness City</ThemedText>
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>State</ThemedText>
-              <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>CA</ThemedText>
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>ZIP Code</ThemedText>
-              <View style={styles.inputContainer}>
-                <ThemedText style={styles.inputText}>90210</ThemedText>
+                <ThemedText style={styles.inputText}>
+                  Active
+                </ThemedText>
               </View>
             </View>
           </View>
@@ -239,103 +441,114 @@ const styles = StyleSheet.create({
     color: '#333333',
   },
   saveButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#20AB7D',
-    borderRadius: 8,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  photoSection: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  profilePhotoContainer: {
-    position: 'relative',
-    marginBottom: 16,
-  },
-  profilePhoto: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-  },
-  profilePhotoPlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 60,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#20AB7D',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  profilePhotoText: {
+  saveButtonText: {
+    fontSize: 16,
     color: '#FFFFFF',
-    fontSize: 48,
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    fontSize: 16,
+    marginTop: 10,
+    color: '#666666',
+  },
+  photoSection: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 24,
+    backgroundColor: '#F8F8F8',
+  },
+  profilePhotoContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 2,
+    borderColor: '#20AB7D',
+  },
+  profilePhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  profilePhotoPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E0E0E0',
+  },
+  profilePhotoText: {
+    fontSize: 40,
+    color: '#FFFFFF',
   },
   uploadOverlay: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#20AB7D',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
   },
   uploadText: {
-    fontSize: 16,
+    fontSize: 20,
+    color: '#FFFFFF',
   },
   uploadButton: {
-    paddingHorizontal: 20,
+    marginTop: 10,
     paddingVertical: 10,
-    backgroundColor: '#F8F8F8',
+    paddingHorizontal: 20,
+    backgroundColor: '#20AB7D',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    alignItems: 'center',
+  },
+  uploadButtonDisabled: {
+    opacity: 0.7,
   },
   uploadButtonText: {
-    color: '#20AB7D',
-    fontSize: 14,
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   profileInfo: {
     paddingHorizontal: 24,
     paddingVertical: 24,
   },
   section: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333333',
-    marginBottom: 20,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    marginBottom: 10,
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   inputLabel: {
     fontSize: 14,
-    fontWeight: '600',
     color: '#666666',
-    marginBottom: 8,
+    marginBottom: 5,
   },
   inputContainer: {
     backgroundColor: '#F8F8F8',
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },

@@ -1,12 +1,59 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { authAPI, storage } from '@/utils/api';
 
 export default function HomePage() {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [doctorInfo, setDoctorInfo] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    verifyJWTAndGetDoctorInfo();
+  }, []);
+
+  const verifyJWTAndGetDoctorInfo = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        console.log('No token found, redirecting to login');
+        router.push('../login');
+        return;
+      }
+
+      // Call JWT verification endpoint using API utility with token in body
+      const response = await authAPI.verifyJWT(token);
+
+      if (response.status === 200) {
+        const { message, doctor } = response.data;
+        if (message === "JWT verified" && doctor) {
+          setDoctorInfo(doctor);
+          console.log('Doctor info fetched:', doctor);
+        } else {
+          console.error('Invalid response format:', response.data);
+          Alert.alert('Error', 'Invalid response from server');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error verifying JWT:', error);
+      
+      if (error.response?.status === 401) {
+        // Token is invalid or expired
+        Alert.alert('Session Expired', 'Please login again');
+        await storage.clearAll();
+        router.push('../login');
+      } else {
+        Alert.alert('Error', 'Failed to verify authentication. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handlePatientRequest = () => {
     router.push('../patient-request');
@@ -25,13 +72,11 @@ export default function HomePage() {
   };
 
   const handleMyProfile = () => {
-    console.log('handleMyProfile called - navigating to my-profile');
-    Alert.alert('Debug', 'handleMyProfile function called!');
     setShowProfileDropdown(false);
     router.push('/(tabs)/my-profile');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
@@ -43,9 +88,16 @@ export default function HomePage() {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: () => {
-            setShowProfileDropdown(false);
-            router.push('../login');
+          onPress: async () => {
+            try {
+              await storage.clearAll();
+              setShowProfileDropdown(false);
+              router.push('../login');
+            } catch (error) {
+              console.error('Logout error:', error);
+              // Still redirect even if storage clear fails
+              router.push('../login');
+            }
           },
         },
       ]
@@ -56,15 +108,43 @@ export default function HomePage() {
     setShowProfileDropdown(false);
   };
 
+  const showDoctorInfo = () => {
+    if (doctorInfo) {
+      Alert.alert(
+        'Doctor Information',
+        `Name: ${doctorInfo.name}\nEmail: ${doctorInfo.email}\nPhone: ${doctorInfo.phonenumber}\nNMR: ${doctorInfo.nmr_number}\nHospital: ${doctorInfo.hospital}\nSpecialization: ${doctorInfo.specialization}\nAbout: ${doctorInfo.aboutme}\nBooked: ${doctorInfo.booked}\nBooked By: ${doctorInfo.bookedby}`,
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert('Doctor Info', 'No doctor information available');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ThemedText style={styles.loadingText}>Loading...</ThemedText>
+        </View>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header Section */}
         <View style={styles.header}>
-          <ThemedText style={styles.greeting}>HELLO, DR. PRIEYAN</ThemedText>
+          <View style={styles.greetingContainer}>
+            <ThemedText style={styles.greeting}>
+              HELLO, DR. {doctorInfo?.name?.split(' ')[0] }
+            </ThemedText>
+          </View>
           <TouchableOpacity style={styles.profileButton} onPress={handleProfileClick}>
             <View style={styles.profileIcon}>
-              <ThemedText style={styles.profileText}>P</ThemedText>
+              <ThemedText style={styles.profileText}>
+                {doctorInfo?.name?.charAt(0)?.toUpperCase() || 'P'}
+              </ThemedText>
             </View>
           </TouchableOpacity>
         </View>
@@ -74,6 +154,12 @@ export default function HomePage() {
           <View style={styles.dropdownContainer}>
             <TouchableOpacity style={styles.dropdownItem} onPress={handleMyProfile}>
               <ThemedText style={styles.dropdownText}>My Profile</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={showDoctorInfo}>
+              <ThemedText style={styles.dropdownText}>Show Info</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={verifyJWTAndGetDoctorInfo}>
+              <ThemedText style={styles.dropdownText}>Refresh Token</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity style={styles.dropdownItem} onPress={handleLogout}>
               <ThemedText style={[styles.dropdownText, styles.logoutText]}>Logout</ThemedText>
@@ -160,10 +246,36 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     position: 'relative',
   },
+  greetingContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
   greeting: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333333',
+  },
+  doctorInfo: {
+    fontSize: 14,
+    color: '#666666',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  doctorInfoContainer: {
+    marginTop: 4,
+  },
+  aboutMe: {
+    fontSize: 12,
+    color: '#888888',
+    marginTop: 4,
+    fontStyle: 'italic',
+    maxWidth: 200,
+  },
+  bookingStatus: {
+    fontSize: 12,
+    color: '#888888',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   profileButton: {
     width: 40,
@@ -185,6 +297,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  profileImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   dropdownContainer: {
     position: 'absolute',
@@ -327,5 +444,15 @@ const styles = StyleSheet.create({
   navIcon: {
     fontSize: 20,
     color: '#20AB7D',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#333333',
   },
 });
