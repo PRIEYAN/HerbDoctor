@@ -8,7 +8,6 @@ import { ThemedView } from '@/components/ThemedView';
 import { authAPI, storage } from '@/utils/api';
 
 export default function HomePage() {
-  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [doctorInfo, setDoctorInfo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -26,29 +25,30 @@ export default function HomePage() {
         return;
       }
 
-      // Call JWT verification endpoint using API utility with token in body
-      const response = await authAPI.verifyJWT(token);
-
-      if (response.status === 200) {
-        const { message, doctor } = response.data;
-        if (message === "JWT verified" && doctor) {
-          setDoctorInfo(doctor);
-          console.log('Doctor info fetched:', doctor);
-        } else {
-          console.error('Invalid response format:', response.data);
-          Alert.alert('Error', 'Invalid response from server');
+      // Get user data from storage instead of making API call
+      const userData = await storage.getUserData();
+      if (userData) {
+        setDoctorInfo(userData);
+        console.log('Doctor info loaded from storage:', userData);
+      } else {
+        // If no stored data, try API call as fallback
+        const response = await authAPI.verifyJWT(token);
+        if (response.status === 200) {
+          const { message, doctor } = response.data;
+          if (message === "JWT verified" && doctor) {
+            setDoctorInfo(doctor);
+            await storage.setUserData(doctor);
+            console.log('Doctor info fetched from API:', doctor);
+          }
         }
       }
     } catch (error: any) {
-      console.error('Error verifying JWT:', error);
+      console.error('Error loading doctor info:', error);
       
       if (error.response?.status === 401) {
         // Token is invalid or expired
-        Alert.alert('Session Expired', 'Please login again');
         await storage.clearAll();
         router.push('../login');
-      } else {
-        Alert.alert('Error', 'Failed to verify authentication. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -68,45 +68,9 @@ export default function HomePage() {
   };
 
   const handleProfileClick = () => {
-    setShowProfileDropdown(!showProfileDropdown);
-  };
-
-  const handleMyProfile = () => {
-    setShowProfileDropdown(false);
     router.push('/(tabs)/my-profile');
   };
 
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await storage.clearAll();
-              setShowProfileDropdown(false);
-              router.push('../login');
-            } catch (error) {
-              console.error('Logout error:', error);
-              // Still redirect even if storage clear fails
-              router.push('../login');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const closeDropdown = () => {
-    setShowProfileDropdown(false);
-  };
 
   const showDoctorInfo = () => {
     if (doctorInfo) {
@@ -149,23 +113,6 @@ export default function HomePage() {
           </TouchableOpacity>
         </View>
 
-        {/* Profile Dropdown */}
-        {showProfileDropdown && (
-          <View style={styles.dropdownContainer}>
-            <TouchableOpacity style={styles.dropdownItem} onPress={handleMyProfile}>
-              <ThemedText style={styles.dropdownText}>My Profile</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.dropdownItem} onPress={showDoctorInfo}>
-              <ThemedText style={styles.dropdownText}>Show Info</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.dropdownItem} onPress={verifyJWTAndGetDoctorInfo}>
-              <ThemedText style={styles.dropdownText}>Refresh Token</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.dropdownItem} onPress={handleLogout}>
-              <ThemedText style={[styles.dropdownText, styles.logoutText]}>Logout</ThemedText>
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* Main Content */}
         <View style={styles.content}>
@@ -244,7 +191,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 60,
     paddingBottom: 32,
-    position: 'relative',
   },
   greetingContainer: {
     flexDirection: 'column',
@@ -297,50 +243,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  profileImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  dropdownContainer: {
-    position: 'absolute',
-    top: 120,
-    right: 24,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 1000,
-    minWidth: 150,
-  },
-  dropdownItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  dropdownText: {
-    fontSize: 16,
-    color: '#333333',
-  },
-  logoutText: {
-    color: '#FF4444',
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'transparent',
-    zIndex: 999,
   },
   content: {
     paddingHorizontal: 24,

@@ -1,78 +1,56 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { patientRequestAPI } from '@/utils/api';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
-// Static patient request data
-const patientRequests = [
-  {
-    id: 1,
-    patientName: 'Sarah Johnson',
-    age: 28,
-    condition: 'Chronic Migraine',
-    urgency: 'Medium',
-    requestTime: '2 hours ago',
-    symptoms: 'Severe headache, nausea, sensitivity to light',
-    status: 'Pending',
-    avatar: '👩‍⚕️'
-  },
-  {
-    id: 2,
-    patientName: 'Michael Chen',
-    age: 45,
-    condition: 'Diabetes Management',
-    urgency: 'Low',
-    requestTime: '4 hours ago',
-    symptoms: 'Blood sugar fluctuations, fatigue',
-    status: 'Pending',
-    avatar: '👨‍⚕️'
-  },
-  {
-    id: 3,
-    patientName: 'Emily Rodriguez',
-    age: 32,
-    condition: 'Anxiety Disorder',
-    urgency: 'High',
-    requestTime: '1 hour ago',
-    symptoms: 'Panic attacks, insomnia, restlessness',
-    status: 'Pending',
-    avatar: '👩‍⚕️'
-  },
-  {
-    id: 4,
-    patientName: 'David Thompson',
-    age: 58,
-    condition: 'Hypertension',
-    urgency: 'Medium',
-    requestTime: '3 hours ago',
-    symptoms: 'High blood pressure, chest discomfort',
-    status: 'Pending',
-    avatar: '👨‍⚕️'
-  },
-  {
-    id: 5,
-    patientName: 'Lisa Wang',
-    age: 26,
-    condition: 'Seasonal Allergies',
-    urgency: 'Low',
-    requestTime: '5 hours ago',
-    symptoms: 'Sneezing, runny nose, itchy eyes',
-    status: 'Pending',
-    avatar: '👩‍⚕️'
-  }
-];
+interface PatientRequest {
+  _id: string;
+  appointmentId: string;
+  doctorName: string;
+  doctorPhoneNumber: string;
+  patientName: string;
+  patientPhoneNumber: string;
+  status: string;
+  reqTime: string;
+  acceptTime?: string;
+}
 
 export default function PatientRequestPage() {
-  const [selectedRequest, setSelectedRequest] = useState<number | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<string | null>(null);
+  const [patientRequests, setPatientRequests] = useState<PatientRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  console.log('PatientRequestPage rendering with', patientRequests.length, 'requests');
+  useEffect(() => {
+    fetchPatientRequests();
+  }, []);
+
+  const fetchPatientRequests = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await patientRequestAPI.getPatientRequests();
+      
+      if (response.data && response.data.data) {
+        setPatientRequests(response.data.data);
+      } else {
+        setPatientRequests([]);
+      }
+    } catch (err: any) {
+      console.error('Error fetching patient requests:', err);
+      setError(err.response?.data?.message || 'Failed to fetch patient requests');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleBack = () => {
     router.back();
   };
 
-  const handleAcceptRequest = (requestId: number) => {
+  const handleAcceptRequest = (requestId: string) => {
     Alert.alert(
       'Accept Request',
       'Are you sure you want to accept this patient request?',
@@ -83,13 +61,15 @@ export default function PatientRequestPage() {
           style: 'default',
           onPress: () => {
             Alert.alert('Success', 'Patient request accepted successfully!');
+            // Refresh the list after accepting
+            fetchPatientRequests();
           }
         }
       ]
     );
   };
 
-  const handleRejectRequest = (requestId: number) => {
+  const handleRejectRequest = (requestId: string) => {
     Alert.alert(
       'Reject Request',
       'Are you sure you want to reject this patient request?',
@@ -100,18 +80,30 @@ export default function PatientRequestPage() {
           style: 'destructive',
           onPress: () => {
             Alert.alert('Request Rejected', 'Patient request has been rejected.');
+            // Refresh the list after rejecting
+            fetchPatientRequests();
           }
         }
       ]
     );
   };
 
-  const handleViewDetails = (requestId: number) => {
+  const handleViewDetails = (requestId: string) => {
     setSelectedRequest(selectedRequest === requestId ? null : requestId);
   };
 
-  const getUrgencyColor = (urgency: string) => {
-    switch (urgency.toLowerCase()) {
+  const getStatusPriority = (status: string) => {
+    if (!status) return 'low';
+    switch (status.toLowerCase()) {
+      case 'pending': return 'high';
+      case 'accepted': return 'medium';
+      case 'rejected': return 'low';
+      default: return 'low';
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
       case 'high': return '#FF4444';
       case 'medium': return '#FF8800';
       case 'low': return '#20AB7D';
@@ -120,6 +112,7 @@ export default function PatientRequestPage() {
   };
 
   const getStatusColor = (status: string) => {
+    if (!status) return '#666666';
     switch (status.toLowerCase()) {
       case 'pending': return '#FF8800';
       case 'accepted': return '#20AB7D';
@@ -127,6 +120,48 @@ export default function PatientRequestPage() {
       default: return '#666666';
     }
   };
+
+  if (loading) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <ThemedText style={styles.backButtonText}>← Back</ThemedText>
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <ThemedText style={styles.headerTitle}>PATIENT REQUESTS</ThemedText>
+            <ThemedText style={styles.headerSubtitle}>Loading...</ThemedText>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#20AB7D" />
+          <ThemedText style={styles.loadingText}>Loading patient requests...</ThemedText>
+        </View>
+      </ThemedView>
+    );
+  }
+
+  if (error) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <ThemedText style={styles.backButtonText}>← Back</ThemedText>
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <ThemedText style={styles.headerTitle}>PATIENT REQUESTS</ThemedText>
+            <ThemedText style={styles.headerSubtitle}>Error occurred</ThemedText>
+          </View>
+        </View>
+        <View style={styles.errorContainer}>
+          <ThemedText style={styles.errorText}>{error}</ThemedText>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchPatientRequests}>
+            <ThemedText style={styles.retryButtonText}>Retry</ThemedText>
+          </TouchableOpacity>
+        </View>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -146,40 +181,48 @@ export default function PatientRequestPage() {
       {/* Content */}
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
-          {patientRequests.map((request) => (
-            <View key={request.id} style={styles.requestCard}>
+          {patientRequests.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ThemedText style={styles.emptyText}>No patient requests found</ThemedText>
+              <TouchableOpacity style={styles.refreshButton} onPress={fetchPatientRequests}>
+                <ThemedText style={styles.refreshButtonText}>Refresh</ThemedText>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            patientRequests.map((request) => (
+              <View key={request._id} style={styles.requestCard}>
               <View style={styles.cardHeader}>
                 <View style={styles.patientInfo}>
                   <View style={styles.avatar}>
-                    <ThemedText style={styles.avatarText}>{request.avatar}</ThemedText>
+                    <ThemedText style={styles.avatarText}>👤</ThemedText>
                   </View>
                   <View style={styles.patientDetails}>
                     <ThemedText style={styles.patientName}>{request.patientName}</ThemedText>
-                    <ThemedText style={styles.patientAge}>{request.age} years old</ThemedText>
+                    <ThemedText style={styles.patientAge}>{request.patientPhoneNumber}</ThemedText>
                   </View>
                 </View>
                 <View style={styles.urgencyBadge}>
-                  <ThemedText style={[styles.urgencyText, { color: getUrgencyColor(request.urgency) }]}>
-                    {request.urgency}
+                  <ThemedText style={[styles.urgencyText, { color: getPriorityColor(getStatusPriority(request.status)) }]}>
+                    {getStatusPriority(request.status).toUpperCase()}
                   </ThemedText>
                 </View>
               </View>
 
               <View style={styles.cardBody}>
                 <View style={styles.conditionRow}>
-                  <ThemedText style={styles.conditionLabel}>Condition:</ThemedText>
-                  <ThemedText style={styles.conditionText}>{request.condition}</ThemedText>
+                  <ThemedText style={styles.conditionLabel}>Appointment ID:</ThemedText>
+                  <ThemedText style={styles.conditionText}>{request.appointmentId}</ThemedText>
                 </View>
                 
                 <View style={styles.symptomsContainer}>
-                  <ThemedText style={styles.symptomsLabel}>Symptoms:</ThemedText>
-                  <ThemedText style={styles.symptomsText}>{request.symptoms}</ThemedText>
+                  <ThemedText style={styles.symptomsLabel}>Doctor:</ThemedText>
+                  <ThemedText style={styles.symptomsText}>{request.doctorName}</ThemedText>
                 </View>
 
                 <View style={styles.metaInfo}>
                   <View style={styles.metaItem}>
                     <ThemedText style={styles.metaLabel}>Requested:</ThemedText>
-                    <ThemedText style={styles.metaValue}>{request.requestTime}</ThemedText>
+                    <ThemedText style={styles.metaValue}>{request.reqTime}</ThemedText>
                   </View>
                   <View style={styles.metaItem}>
                     <ThemedText style={styles.metaLabel}>Status:</ThemedText>
@@ -193,7 +236,7 @@ export default function PatientRequestPage() {
               <View style={styles.cardActions}>
                 <TouchableOpacity 
                   style={styles.actionButton} 
-                  onPress={() => handleViewDetails(request.id)}
+                  onPress={() => handleViewDetails(request._id)}
                 >
                   <ThemedText style={styles.actionButtonText}>View Details</ThemedText>
                 </TouchableOpacity>
@@ -201,14 +244,14 @@ export default function PatientRequestPage() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={[styles.actionButton, styles.rejectButton]} 
-                    onPress={() => handleRejectRequest(request.id)}
+                    onPress={() => handleRejectRequest(request._id)}
                   >
                     <ThemedText style={styles.rejectButtonText}>Reject</ThemedText>
                   </TouchableOpacity>
                   
                   <TouchableOpacity 
                     style={[styles.actionButton, styles.acceptButton]} 
-                    onPress={() => handleAcceptRequest(request.id)}
+                    onPress={() => handleAcceptRequest(request._id)}
                   >
                     <ThemedText style={styles.acceptButtonText}>Accept</ThemedText>
                   </TouchableOpacity>
@@ -216,33 +259,47 @@ export default function PatientRequestPage() {
               </View>
 
               {/* Expanded Details */}
-              {selectedRequest === request.id && (
+              {selectedRequest === request._id && (
                 <View style={styles.expandedDetails}>
                   <View style={styles.detailSection}>
-                    <ThemedText style={styles.detailTitle}>Detailed Symptoms</ThemedText>
+                    <ThemedText style={styles.detailTitle}>Appointment Details</ThemedText>
                     <ThemedText style={styles.detailText}>
-                      Patient reports {request.symptoms.toLowerCase()}. 
-                      Symptoms have been present for the last few days and are affecting daily activities.
+                      Appointment ID: {request.appointmentId}
+                    </ThemedText>
+                    <ThemedText style={styles.detailText}>
+                      Doctor: {request.doctorName}
+                    </ThemedText>
+                    <ThemedText style={styles.detailText}>
+                      Doctor Phone: {request.doctorPhoneNumber}
                     </ThemedText>
                   </View>
                   
                   <View style={styles.detailSection}>
-                    <ThemedText style={styles.detailTitle}>Medical History</ThemedText>
+                    <ThemedText style={styles.detailTitle}>Patient Information</ThemedText>
                     <ThemedText style={styles.detailText}>
-                      No significant medical history. Patient is generally healthy with no known allergies.
+                      Patient Name: {request.patientName}
+                    </ThemedText>
+                    <ThemedText style={styles.detailText}>
+                      Patient Phone: {request.patientPhoneNumber}
                     </ThemedText>
                   </View>
                   
                   <View style={styles.detailSection}>
-                    <ThemedText style={styles.detailTitle}>Preferred Consultation</ThemedText>
+                    <ThemedText style={styles.detailTitle}>Timing</ThemedText>
                     <ThemedText style={styles.detailText}>
-                      Patient prefers video consultation. Available for appointments between 9 AM - 6 PM.
+                      Request Time: {request.reqTime}
                     </ThemedText>
+                    {request.acceptTime && (
+                      <ThemedText style={styles.detailText}>
+                        Accept Time: {request.acceptTime}
+                      </ThemedText>
+                    )}
                   </View>
                 </View>
               )}
             </View>
-          ))}
+            ))
+          )}
         </View>
       </ScrollView>
     </ThemedView>
@@ -458,5 +515,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666666',
     lineHeight: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666666',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#FF4444',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  retryButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: '#20AB7D',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666666',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  refreshButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: '#20AB7D',
+    borderRadius: 8,
+  },
+  refreshButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
   },
 }); 

@@ -29,4 +29,9 @@ const styles = StyleSheet.create({
     marginTop: 15,
     paddingVertical: 15,
   },
+  linkText: {
+    color: '#0a7ea4',
+    fontSize: 16,
+    textDecorationLine: 'underline',
+  },
 });

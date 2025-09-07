@@ -82,6 +82,21 @@ export const authAPI = {
   },
 };
 
+export const patientRequestAPI = {
+  getPatientRequests: async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      return apiClient.post('doctor/patientReq/getPatientReq', { token });
+    } catch (error) {
+      console.error('Error getting token for patient requests:', error);
+      throw error;
+    }
+  },
+};
+
 // Storage utility functions
 export const storage = {
   getToken: async () => {
