@@ -59,10 +59,26 @@ export default function PatientRequestPage() {
         { 
           text: 'Accept', 
           style: 'default',
-          onPress: () => {
-            Alert.alert('Success', 'Patient request accepted successfully!');
-            // Refresh the list after accepting
-            fetchPatientRequests();
+          onPress: async () => {
+            try {
+              console.log('Accepting patient request with ID:', requestId);
+              const response = await patientRequestAPI.acceptPatientRequest(requestId);
+              console.log('Accept response:', response);
+              if (response.status === 200) {
+                Alert.alert('Success', 'Patient request accepted successfully!');
+                // Refresh the list after accepting
+                fetchPatientRequests();
+              }
+            } catch (error: any) {
+              console.error('Error accepting patient request:', error);
+              console.error('Error details:', {
+                message: error.message,
+                status: error.response?.status,
+                data: error.response?.data,
+                url: error.config?.url
+              });
+              Alert.alert('Error', error.response?.data?.message || error.message || 'Failed to accept patient request');
+            }
           }
         }
       ]
@@ -244,14 +260,14 @@ export default function PatientRequestPage() {
                 <View style={styles.actionRow}>
                   <TouchableOpacity 
                     style={[styles.actionButton, styles.rejectButton]} 
-                    onPress={() => handleRejectRequest(request._id)}
+                    onPress={() => handleRejectRequest(request.appointmentId)}
                   >
                     <ThemedText style={styles.rejectButtonText}>Reject</ThemedText>
                   </TouchableOpacity>
                   
                   <TouchableOpacity 
                     style={[styles.actionButton, styles.acceptButton]} 
-                    onPress={() => handleAcceptRequest(request._id)}
+                    onPress={() => handleAcceptRequest(request.appointmentId)}
                   >
                     <ThemedText style={styles.acceptButtonText}>Accept</ThemedText>
                   </TouchableOpacity>

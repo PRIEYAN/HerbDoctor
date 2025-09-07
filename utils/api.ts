@@ -95,6 +95,24 @@ export const patientRequestAPI = {
       throw error;
     }
   },
+  
+  acceptPatientRequest: async (appointmentId: string) => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      console.log('Making API call to accept patient request:', {
+        url: 'acceptPatientReq',
+        appointmentId,
+        hasToken: !!token
+      });
+      return apiClient.post('doctor/patientReq/acceptPatientReq', { appointmentId,token });
+    } catch (error) {
+      console.error('Error getting token for accepting patient request:', error);
+      throw error;
+    }
+  },
 };
 
 // Storage utility functions
